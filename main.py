@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import torch
-from transformers import BertTokenizer, BertForTokenClassification
+from transformers import BertTokenizer, BertForTokenClassification, AutoTokenizer, AutoModel
 import numpy as np
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 import uvicorn
+from utils.stopwords import stopwords
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = FastAPI()
 
@@ -131,27 +133,8 @@ def perform_ner_inference(data: TextData):
     return {"entities": text_vector, "pred_tags": pred_tags}
 
 
-stopwords = ['i', 'me', 'my', 'myself', 'im', 'm', 'we', 'our', 
-			'ours', 'ourselves', 'you', 'your', 'yours', 
-			'yourself', 'yourselves', 'he', 'him', 'his', 
-			'himself', 'she', 'her', 'hers', 'herself', 
-			'it', 'its', 'itself', 'they', 'them', 'their', 
-			'theirs', 'themselves', 'what', 'which', 'who', 
-			'whom', 'this', 'that', 'these', 'those', 'am', 
-			'is', 'are', 'was', 'were', 'be', 'been', 'being', 
-			'have', 'has', 'had', 'having', 'do', 'does', 'did',
-			'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or',
-			'because', 'as', 'until', 'while', 'of', 'at', 
-			'by', 'for', 'with', 'about', 'against', 'between',
-			'into', 'through', 'during', 'before', 'after', 
-			'above', 'below', 'to', 'from', 'up', 'down', 'in',
-			'out', 'on', 'off', 'over', 'under', 'again', 
-			'further', 'then', 'once', 'here', 'there', 'when', 
-			'where', 'why', 'how', 'all', 'any', 'both', 'each', 
-			'few', 'more', 'most', 'other', 'some', 'such', 'no', 
-			'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 
-			'very', 's', 't', 'can', 'will', 'just', 'don', 'dont',
-			'should', 'now', '']
+stop_words = stopwords
+print(stop_words)
 
 @app.post("/keyword_extraction")
 def perform_keyword_extraction(data: TextData, top_n: int = 5):
@@ -162,13 +145,38 @@ def perform_keyword_extraction(data: TextData, top_n: int = 5):
     keywords_weights = kw_model.extract_keywords(data.text, 
                                                  keyphrase_ngram_range=(1, 2),  # 추출할 키워드의 n-gram 범위
                                                  diversity=0.9,  # 추출된 키워드의 중복을 허용하는 정도 (1이면 중복 허용 안함)
-                                                 stop_words=stopwords,
+                                                 stop_words=stop_words,
                                                  top_n=top_n,  # 추출할 키워드의 개수
                                                  )
     
     keywords = [k_w[0] for k_w in keywords_weights]
     weights = [k_w[1] for k_w in keywords_weights]
     return {"keywords": keywords, "weights": weights}
+
+
+@app.get("/similarity")
+def perform_similarity(keyword1: str, keyword2: str):
+    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    model = AutoModel.from_pretrained('bert-base-uncased')
+
+    # 두 키워드 각각에 대해 BERT를 이용해 문장 임베딩 수행
+    inputs1 = tokenizer(keyword1, return_tensors='pt', padding=True, truncation=True)
+    inputs2 = tokenizer(keyword2, return_tensors='pt', padding=True, truncation=True)
+
+    with torch.no_grad():
+        outputs1 = model(**inputs1)
+        outputs2 = model(**inputs2)
+
+    # 문장 임베딩 결과의 평균을 취함
+    embeddings1 = outputs1.last_hidden_state.mean(dim=1)
+    embeddings2 = outputs2.last_hidden_state.mean(dim=1)
+
+    # 두 임베딩 벡터 간의 코사인 유사도 계산
+    similarity = cosine_similarity(embeddings1, embeddings2)
+
+    return {'similarity': similarity.item()}
+
+
 
 if __name__ == '__main__':
 	uvicorn.run(app, host="0.0.0.0", port=8000) 
