@@ -5,7 +5,11 @@ from sentence_transformers import SentenceTransformer
 
 app = FastAPI()
 
-class TextData(BaseModel):
+# MODEL_NAME = 'all-mpnet-base-v2'
+# sentence_model = SentenceTransformer(MODEL_NAME)
+# kw_model = KeyBERT(model=sentence_model)
+
+class DocData(BaseModel):
     text: str
 
 stopwords = ['i', 'me', 'my', 'myself', 'im', 'm', 'we', 'our', 
@@ -30,17 +34,20 @@ stopwords = ['i', 'me', 'my', 'myself', 'im', 'm', 'we', 'our',
 			'very', 's', 't', 'can', 'will', 'just', 'don', 'dont',
 			'should', 'now', '']
 
+
 @app.post("/keyword_extraction")
-def perform_keyword_extraction(data: TextData, top_n: int = 5):
+def app(data: DocData):
     MODEL_NAME = 'all-mpnet-base-v2'
     sentence_model = SentenceTransformer(MODEL_NAME)
     kw_model = KeyBERT(model=sentence_model)
 
+    N_GRAM_RANGE = (1, 2)
+    DIVERSITY = 0.9
     keywords_weights = kw_model.extract_keywords(data.text, 
-                                                 keyphrase_ngram_range=(1, 2),  # 추출할 키워드의 n-gram 범위
-                                                 diversity=0.9,  # 추출된 키워드의 중복을 허용하는 정도 (1이면 중복 허용 안함)
+                                                 keyphrase_ngram_range=N_GRAM_RANGE,  # 추출할 키워드의 n-gram 범위
+                                                 diversity=DIVERSITY,  # 추출된 키워드의 중복을 허용하는 정도 (1이면 중복 허용 안함)
                                                  stop_words=stopwords,
-                                                 top_n=top_n,  # 추출할 키워드의 개수
+                                                 top_n=5,  # 추출할 키워드의 개수
                                                  )
     
     keywords = [k_w[0] for k_w in keywords_weights]

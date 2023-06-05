@@ -9,7 +9,7 @@ tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 model = AutoModel.from_pretrained('bert-base-uncased')
 
 @app.get("/similarity")
-def perform_similarity(keyword1: str, keyword2: str):
+def app(keyword1: str, keyword2: str):
     # 두 키워드 각각에 대해 BERT를 이용해 문장 임베딩 수행
     inputs1 = tokenizer(keyword1, return_tensors='pt', padding=True, truncation=True)
     inputs2 = tokenizer(keyword2, return_tensors='pt', padding=True, truncation=True)
