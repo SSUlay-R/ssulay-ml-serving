@@ -86,9 +86,6 @@ id2tag = {id: tag for tag, id in tag2id.items()}
 #     return input_ids, attention_masks, tags_ids
 
 def encode_input_data(tokens, max_seq_length):
-    # Initialize the tokenizer
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    
     # Convert tokens to input encoding
     encoded_input = tokenizer.encode_plus(tokens,
                                         #   is_pretokenized=True, # Indicate that input is tokenized
@@ -179,9 +176,10 @@ def tokenize(doc_str) -> list:
     return tokens
 
 @app.post("/ner_inference")
-def perform_ner_inference(text): 
+def perform_ner_inference(data: TextData): 
     model.eval()
 
+    text = data.text
     preprocessed_doc = preprocess_text(text)
     tokens = tokenize(preprocessed_doc)
 
