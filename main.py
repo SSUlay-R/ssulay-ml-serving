@@ -96,7 +96,7 @@ def process_keywords_list(keywords_list):
     return result
 
 
-@app.post("/ner_inference_batch")
+@app.post("/ner_inference")
 def ner_inference_batch(sen: TextData2):
     word_level_predictions_list = []
     str_rep_list = []
