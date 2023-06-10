@@ -9,6 +9,7 @@ import uvicorn
 from utils.stopwords import stopwords
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from typing import List
 
 app = FastAPI()
 
@@ -36,41 +37,118 @@ id2label = model.config.id2label  # mapping from label IDs to label names
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
-@app.post("/ner_inference")
-def ner_inference(sen: TextData2):
-    sentence = sen.input
-    
-    inputs = tokenizer(sentence, padding='max_length', truncation=True, max_length=512, return_tensors="pt")
+def split_sentences(text):
+    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', text)
+    return sentences
 
-    # move to gpu
-    ids = inputs["input_ids"]
-    mask = inputs["attention_mask"]
-    # forward pass
-    outputs = model(ids, mask)
-    logits = outputs[0]
+def save_bio_keywords(tokens, tags) -> dict:
+    # assert len(tokens) == len(tags), "Length of tokens and predicted tags should be the same."
+    tokens = [t for t in tokens if t not in ['[CLS]', '[SEP]', '[PAD]']]
 
-    print('>>', logits.shape)  # >> torch.Size([1, 512, 768])
-    print('>>', model.config.num_labels)  # >> 17
-    active_logits = logits.view(-1, model.config.num_labels) # shape (batch_size * seq_len, num_labels)
-    flattened_predictions = torch.argmax(active_logits, axis=1) # shape (batch_size*seq_len,) - predictions at the token level
+    keyword_dict = {}
+    current_entity_tokens = []
+    current_entity_label = None
 
-    tokens = tokenizer.convert_ids_to_tokens(ids.squeeze().tolist())
-    token_predictions = [id2label[i] for i in flattened_predictions.numpy()]
-    wp_preds = list(zip(tokens, token_predictions)) # list of tuples. Each tuple = (wordpiece, prediction)
-
-    word_level_predictions = []
-    for pair in wp_preds:
-        if (pair[0].startswith(" ##")) or (pair[0] in ['[CLS]', '[SEP]', '[PAD]']):
-            # skip prediction
+    for i, tag in enumerate(tags):
+        token = tokens[i]
+        if token.startswith('##'):
+            if current_entity_tokens:
+                token = token[2:]  # remove '##'
+                current_entity_tokens[-1] += token  # merge with the previous token
             continue
+
+        if tag.startswith('B'):
+            # save previous entity
+            if current_entity_label is not None:
+                keyword_dict[current_entity_label] = keyword_dict.get(current_entity_label, []) + [' '.join(current_entity_tokens)]
+            
+            # start new entity
+            current_entity_label = tag.split('-')[1]
+            current_entity_tokens = [token]
+        elif tag.startswith('I') and current_entity_label == tag.split('-')[1]:
+            # continue the entity
+            if current_entity_label is not None:
+                current_entity_tokens.append(token)
         else:
-            word_level_predictions.append(pair[1])
+            # save the previous entity if it exists
+            if current_entity_label is not None:
+                keyword_dict[current_entity_label] = keyword_dict.get(current_entity_label, []) + [' '.join(current_entity_tokens)]
+            
+            # reset the current entity
+            current_entity_tokens = []
+            current_entity_label = None
 
-    # we join tokens, if they are not special ones
-    str_rep = " ".join([t[0] for t in wp_preds if t[0] not in ['[CLS]', '[SEP]', '[PAD]']]).replace(" ##", "")
+    # add the last entity if it exists
+    if current_entity_label is not None:
+        keyword_dict[current_entity_label] = keyword_dict.get(current_entity_label, []) + [' '.join(current_entity_tokens)]
 
-    return {"str_rep": str_rep,
-            "word_level_predictions": word_level_predictions,}
+    return keyword_dict
+
+def process_keywords_list(keywords_list):
+    result = {}
+
+    for item in keywords_list:
+        for key, value in item.items():
+            if key not in result:
+                result[key] = []
+            result[key].extend(value)
+
+    return result
+
+
+@app.post("/ner_inference_batch")
+def ner_inference_batch(sen: TextData2):
+    word_level_predictions_list = []
+    str_rep_list = []
+    keywords_list = []
+
+    sen = split_sentences(sen.input)
+
+    for sentence in sen:
+        # sentence = sentence.input
+        inputs = tokenizer(sentence, padding='max_length', truncation=True, max_length=512, return_tensors="pt")
+
+        # move to gpu
+        ids = inputs["input_ids"]
+        mask = inputs["attention_mask"]
+
+        # forward pass
+        outputs = model(ids, mask)
+        logits = outputs[0]
+
+        active_logits = logits.view(-1, model.config.num_labels) # shape (batch_size * seq_len, num_labels)
+        flattened_predictions = torch.argmax(active_logits, axis=1) # shape (batch_size*seq_len,) - predictions at the token level
+
+        tokens = tokenizer.convert_ids_to_tokens(ids.squeeze().tolist())
+        # print(tokens)
+        token_predictions = [id2label[i] for i in flattened_predictions.numpy()]
+        wp_preds = list(zip(tokens, token_predictions)) # list of tuples. Each tuple = (wordpiece, prediction)
+
+        word_level_predictions = []
+        for pair in wp_preds:
+            if (pair[0].startswith(" ##")) or (pair[0] in ['[CLS]', '[SEP]', '[PAD]']):
+                # skip prediction
+                continue
+            else:
+                word_level_predictions.append(pair[1])
+
+        keywords = save_bio_keywords(tokens, word_level_predictions)
+        keywords_list.append(keywords)
+
+        # we join tokens, if they are not special ones
+        str_rep = " ".join([t[0] for t in wp_preds if t[0] not in ['[CLS]', '[SEP]', '[PAD]']]).replace(" ##", "")
+
+        word_level_predictions_list.append(word_level_predictions)
+        str_rep_list.append(str_rep)
+    
+    keywords = process_keywords_list(keywords_list)
+
+    return {"str_rep": str_rep_list,
+            # "keywords_list": keywords_list,
+            "keywords": keywords,
+            "word_level_predictions": word_level_predictions_list,
+            }
+
 
 stop_words = stopwords
 # print(stop_words)
