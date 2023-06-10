@@ -26,6 +26,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 tokenizer2 = AutoTokenizer.from_pretrained('bert-base-uncased')
 model2 = AutoModel.from_pretrained('bert-base-uncased')
 
+stop_words = stopwords
+# print(stop_words)
 
 class TextData2(BaseModel):
     input: str
@@ -143,27 +145,30 @@ def ner_inference_batch(sen: TextData2):
     
     keywords = process_keywords_list(keywords_list)
 
+    filtered_keywords = {}
+    for key, value in keywords.items():
+        filtered_values = [word for word in value if word not in stopwords]
+        filtered_keywords[key] = filtered_values
+
+
     return {"str_rep": str_rep_list,
             # "keywords_list": keywords_list,
-            "keywords": keywords,
+            "keywords": filtered_keywords,
             "word_level_predictions": word_level_predictions_list,
             }
 
 
-stop_words = stopwords
-# print(stop_words)
+sentence_model = SentenceTransformer('all-mpnet-base-v2')
+kw_model = KeyBERT(model=sentence_model)
 
 @app.post("/keyword_extraction")
-def perform_keyword_extraction(data: TextData, top_n: int = 5):
-    MODEL_NAME = 'all-mpnet-base-v2'
-    sentence_model = SentenceTransformer(MODEL_NAME)
-    kw_model = KeyBERT(model=sentence_model)
+def perform_keyword_extraction(data: TextData2):
 
-    keywords_weights = kw_model.extract_keywords(data.text, 
+    keywords_weights = kw_model.extract_keywords(data.input, 
                                                  keyphrase_ngram_range=(1, 2),  # 추출할 키워드의 n-gram 범위
                                                  diversity=0.9,  # 추출된 키워드의 중복을 허용하는 정도 (1이면 중복 허용 안함)
                                                  stop_words=stop_words,
-                                                 top_n=top_n,  # 추출할 키워드의 개수
+                                                 top_n=5,  # 추출할 키워드의 개수
                                                  )
     
     keywords = [k_w[0] for k_w in keywords_weights]
