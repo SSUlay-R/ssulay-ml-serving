@@ -168,7 +168,7 @@ def perform_keyword_extraction(data: TextData2):
                                                  keyphrase_ngram_range=(1, 2),  # 추출할 키워드의 n-gram 범위
                                                  diversity=0.9,  # 추출된 키워드의 중복을 허용하는 정도 (1이면 중복 허용 안함)
                                                  stop_words=stop_words,
-                                                 top_n=5,  # 추출할 키워드의 개수
+                                                 top_n=3,  # 추출할 키워드의 개수
                                                  )
     
     keywords = [k_w[0] for k_w in keywords_weights]
